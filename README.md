@@ -1,90 +1,16 @@
 # PET CAM — Xmas Edition
 
-Upload a photo of your pet, get a AI-generated Christmas fashion portrait back. Built with Google Gemini's image generation API.
+给你的宠物拍一张圣诞大片。上传照片，AI 自动生成节日风格的写真。
 
-## Features
+## 玩法
 
-**Two generation modes:**
-- **Pet Portrait** — Full editorial treatment: Gemini analyzes the pet, picks a Christmas accessory style and scene theme, generates a high-fashion studio photo
-- **Hat Only** — Adds a Santa hat to any subject, preserving the original background and style
+上传宠物照片后，有两种模式可选：
 
-**Production-ready backend:**
-- Gemini API key kept server-side, never exposed to the client
-- IP-based rate limiting (20 generations / IP / day for Portrait mode)
-- Generated images persisted to object storage
-- Full generation log in database (status, prompt, IP, errors)
-- Admin panel at `/admin` for banning/unbanning users
+- **Pet Portrait** — AI 分析宠物特征，搭配圣诞服饰和场景道具，生成一张杂志风格的圣诞写真
+- **Hat Only** — 保留原图风格，只给主体加一顶圣诞帽
 
-## Tech Stack
+非宠物照片也可以用，会自动降级到加帽模式。
 
-**Frontend**
-- React 18 + TypeScript + Vite
-- Tailwind CSS + Framer Motion
-- React Router
+## 技术
 
-**Backend**
-- Hono (edge runtime via EdgeSpark)
-- Google Gemini (`gemini-3-pro-preview` for analysis, `gemini-3-pro-image-preview` for generation)
-- Drizzle ORM + SQLite (Cloudflare D1)
-- S3-compatible object storage
-
-## Project Structure
-
-```
-src/
-├── components/
-│   ├── RetroCamera.tsx     # Main camera UI
-│   └── landing/
-│       ├── Hero.tsx        # Landing page
-│       └── FilmStack.tsx   # Animated film stack preview
-├── pages/
-│   ├── LandingPage.tsx
-│   ├── AdminPage.tsx       # /admin — ban/unban users
-│   └── LoginPage.tsx
-├── services/
-│   └── gemini.ts           # Frontend API client
-└── lib/
-    └── client.ts           # EdgeSpark client config
-
-backend/
-└── src/
-    └── index.ts            # Hono app — all API routes
-```
-
-## Local Development
-
-**Frontend**
-```bash
-npm install
-npm run dev
-# http://localhost:5173
-```
-
-**Backend**
-
-The backend runs on EdgeSpark. Set the following secrets in your EdgeSpark project:
-- `GEMINI_API_KEY` — Google AI Studio API key
-- `ADMIN_SECRET` — Secret header value for the `/admin` panel
-
-Update `src/lib/client.ts` with your EdgeSpark project URL.
-
-## API Routes
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/public/gemini/generate` | None | Generate Christmas pet image |
-| POST | `/api/public/admin/ban` | `x-admin-secret` header | Ban or unban a user by email |
-
-## Generation Flow
-
-```
-Upload image
-    │
-    ▼
-Detect: is this a real pet photo? (gemini-3-pro-preview)
-    │
-    ├─ Yes → Analyze pet features → Build editorial prompt
-    │        → Generate fashion portrait (gemini-3-pro-image-preview, 3:4, 2K)
-    │
-    └─ No  → Add Santa hat directly (gemini-3-pro-image-preview, 2K)
-```
+React + TypeScript 前端，Hono 后端，Google Gemini 负责图像理解和生成。后端托管在 EdgeSpark。

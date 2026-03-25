@@ -1,72 +1,90 @@
-# AI React Website Template
+# PET CAM — Xmas Edition
 
-A flexible, feature-rich React template designed for AI-generated websites with modern development tools and libraries.
+Upload a photo of your pet, get a AI-generated Christmas fashion portrait back. Built with Google Gemini's image generation API.
 
-## ✨ Key Features
+## Features
 
-- 🚀 **React 18 + TypeScript** - Modern development experience
-- 🎨 **Tailwind CSS** - Utility-first CSS framework
-- ⚡ **Vite** - Fast build tool
-- 🌐 **i18next** - Complete internationalization solution
-- 🎯 **Zustand** - Lightweight state management
-- ✨ **Framer Motion** - Smooth animation effects
-- 🎭 **Headless UI** - Accessible UI components
-- 📦 **Lucide React** - Beautiful icon library
-- 🛣️ **React Router** - Single-page application routing
+**Two generation modes:**
+- **Pet Portrait** — Full editorial treatment: Gemini analyzes the pet, picks a Christmas accessory style and scene theme, generates a high-fashion studio photo
+- **Hat Only** — Adds a Santa hat to any subject, preserving the original background and style
 
-## 🛠️ Tech Stack
+**Production-ready backend:**
+- Gemini API key kept server-side, never exposed to the client
+- IP-based rate limiting (20 generations / IP / day for Portrait mode)
+- Generated images persisted to object storage
+- Full generation log in database (status, prompt, IP, errors)
+- Admin panel at `/admin` for banning/unbanning users
 
-### Core Technologies
-- React 18.3.1 + TypeScript 5.8.3
-- Vite 7.0.0 (Build tool)
-- Tailwind CSS 3.4.17 (CSS framework)
+## Tech Stack
 
-### Feature Libraries
-- React Router DOM 6.30.1 (Routing)
-- Zustand 4.4.7 (State management)
-- i18next + react-i18next (Internationalization)
-- Framer Motion 11.0.8 (Animations)
-- Headless UI 1.7.18 (UI components)
-- Lucide React (Icon library)
+**Frontend**
+- React 18 + TypeScript + Vite
+- Tailwind CSS + Framer Motion
+- React Router
 
-## 🚀 Quick Start
+**Backend**
+- Hono (edge runtime via EdgeSpark)
+- Google Gemini (`gemini-3-pro-preview` for analysis, `gemini-3-pro-image-preview` for generation)
+- Drizzle ORM + SQLite (Cloudflare D1)
+- S3-compatible object storage
 
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-2. **Start development server**:
-   ```bash
-   npm run dev
-   ```
-   Visit http://localhost:5173 to view the application
-
-3. **Build for production**:
-   ```bash
-   npm run build
-   ```
-
-4. **Preview build**:
-   ```bash
-   npm run preview
-   ```
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 src/
-├── api/             # API related code
-├── assets/          # Static assets
-├── components/      # Reusable components
-├── layouts/         # Layout components  
-├── pages/           # Page components
-├── styles/          # Style files
-├── types/           # TypeScript type definitions
-├── App.tsx          # Main application component
-└── main.tsx         # Application entry point
+├── components/
+│   ├── RetroCamera.tsx     # Main camera UI
+│   └── landing/
+│       ├── Hero.tsx        # Landing page
+│       └── FilmStack.tsx   # Animated film stack preview
+├── pages/
+│   ├── LandingPage.tsx
+│   ├── AdminPage.tsx       # /admin — ban/unban users
+│   └── LoginPage.tsx
+├── services/
+│   └── gemini.ts           # Frontend API client
+└── lib/
+    └── client.ts           # EdgeSpark client config
+
+backend/
+└── src/
+    └── index.ts            # Hono app — all API routes
 ```
 
-## More Information
+## Local Development
 
-For more detailed project structure, tech stack, configuration instructions and development guide, please refer to the [YOUWARE.md](./YOUWARE.md) file.
+**Frontend**
+```bash
+npm install
+npm run dev
+# http://localhost:5173
+```
+
+**Backend**
+
+The backend runs on EdgeSpark. Set the following secrets in your EdgeSpark project:
+- `GEMINI_API_KEY` — Google AI Studio API key
+- `ADMIN_SECRET` — Secret header value for the `/admin` panel
+
+Update `src/lib/client.ts` with your EdgeSpark project URL.
+
+## API Routes
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/public/gemini/generate` | None | Generate Christmas pet image |
+| POST | `/api/public/admin/ban` | `x-admin-secret` header | Ban or unban a user by email |
+
+## Generation Flow
+
+```
+Upload image
+    │
+    ▼
+Detect: is this a real pet photo? (gemini-3-pro-preview)
+    │
+    ├─ Yes → Analyze pet features → Build editorial prompt
+    │        → Generate fashion portrait (gemini-3-pro-image-preview, 3:4, 2K)
+    │
+    └─ No  → Add Santa hat directly (gemini-3-pro-image-preview, 2K)
+```

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FilmStack, FilmImage } from './FilmStack';
-import { ArrowDown, Camera, Sparkles, HardHat } from 'lucide-react';
-import dogHat from '../../assets/landing/dog-hat.jpg';
+import { ArrowDown, Sparkles, HardHat } from 'lucide-react';
 
 // Portrait Mode Assets
 import portrait1Original from '../../assets/landing/portrait/1-original.jpg';

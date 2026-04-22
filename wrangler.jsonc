@@ -1,0 +1,30 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "petcam1218",
+	"main": "./src/worker/index.ts",
+	"compatibility_date": "2026-04-22",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"assets": {
+		"directory": "./dist/client",
+		"not_found_handling": "single-page-application"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "petcam1218",
+			"database_id": "f42ae934-a688-4b45-a076-2ae63968aef8"
+		}
+	],
+	"r2_buckets": [
+		{
+			"bucket_name": "petcam1218-images",
+			"binding": "IMAGES_BUCKET"
+		}
+	]
+}

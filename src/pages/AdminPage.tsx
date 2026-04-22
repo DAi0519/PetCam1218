@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { client } from '../lib/client';
+import { apiFetch } from '../lib/client';
 
 export function AdminPage() {
   const [secret, setSecret] = useState('');
@@ -8,7 +8,7 @@ export function AdminPage() {
 
   const handleBan = async (ban: boolean) => {
     try {
-      const res = await client.api.fetch('/api/public/admin/ban', {
+      const res = await apiFetch('/api/public/admin/ban', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -16,8 +16,8 @@ export function AdminPage() {
         },
         body: JSON.stringify({ email, ban })
       });
-      const data = await res.json();
-      setMessage(data.content);
+      const data = await res.json() as { content?: string };
+      setMessage(data.content ?? "Request completed.");
     } catch (e: any) {
       setMessage("Error: " + e.message);
     }

@@ -5,18 +5,28 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc -b && vite build",
+    "preview": "npm run build && vite preview",
+    "cf-typegen": "wrangler types",
+    "cf:bootstrap": "bash ./scripts/bootstrap-cloudflare.sh",
+    "cf:verify": "node ./scripts/verify-cloudflare-config.mjs",
+    "cf:migrate:local": "wrangler d1 execute petcam1218 --local --file=cloudflare/migrations/0001_init.sql",
+    "cf:migrate:remote": "wrangler d1 execute petcam1218 --remote --file=cloudflare/migrations/0001_init.sql",
+    "cf:secrets:bulk": "wrangler secret bulk cloudflare/secrets.production.env",
+    "deploy:dry": "SKIP_CF_VERIFY=1 wrangler deploy --dry-run",
+    "check": "tsc -b && vite build",
+    "deploy": "npm run cf:verify && wrangler deploy"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.22",
-    "@edgespark/client": "^1.0.2",
+    "@google/genai": "^1.34.0",
     "@headlessui/react": "^1.7.18",
     "ai": "^4.3.16",
     "cannon-es": "^0.20.0",
     "clsx": "^2.1.0",
     "framer-motion": "^11.0.8",
     "gsap": "^3.13.0",
+    "hono": "^4.11.1",
     "i18next": "^23.10.1",
     "i18next-browser-languagedetector": "^7.2.0",
     "lucide-react": "^0.533.0",
@@ -27,20 +37,21 @@
     "react-router-dom": "^6.30.1",
     "react-use": "^17.6.0",
     "three": "^0.179.1",
-    "zod": "^3.25.67",
-    "zustand": "^4.4.7"
+    "zod": "^3.25.67"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260422.0",
+    "@cloudflare/vite-plugin": "^1.15.3",
     "@types/matter-js": "^0.20.0",
     "@types/node": "^24.0.14",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.5.2",
-    "@youware/vite-plugin-react": "^1.0.2",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.3",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "wrangler": "^4.56.0"
   }
 }

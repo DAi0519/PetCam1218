@@ -83,6 +83,9 @@ interface PoeMessageContentPart {
 
 interface PoeChatCompletionResponse {
   choices?: Array<{
+    delta?: {
+      content?: string | PoeMessageContentPart[];
+    };
     message?: {
       content?: string | PoeMessageContentPart[];
     };
@@ -92,6 +95,16 @@ interface PoeChatCompletionResponse {
     type?: string;
     message?: string;
   };
+}
+
+interface PoeChatCompletionChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string | PoeMessageContentPart[];
+    };
+    finish_reason?: string | null;
+  }>;
+  error?: PoeChatCompletionResponse["error"];
 }
 
 class PoeApiError extends Error {
@@ -238,7 +251,7 @@ async function callPoeImageModel(
     },
     body: JSON.stringify({
       model: POE_IMAGE_MODEL,
-      stream: false,
+      stream: true,
       messages: [
         {
           role: "user",
@@ -260,15 +273,99 @@ async function callPoeImageModel(
     })
   });
 
-  const retryAfterMs = parseRetryAfterHeader(response.headers.get("Retry-After"));
-  const payload = await response.json().catch(() => null) as PoeChatCompletionResponse | null;
-
   if (!response.ok) {
+    const retryAfterMs = parseRetryAfterHeader(response.headers.get("Retry-After"));
+    const payload = await response.json().catch(() => null) as PoeChatCompletionResponse | null;
     const message = payload?.error?.message || `Poe request failed with status ${response.status}`;
     throw new PoeApiError(message, response.status, retryAfterMs);
   }
 
-  return payload ?? {};
+  return readPoeStream(response);
+}
+
+async function readPoeStream(response: Response): Promise<PoeChatCompletionResponse> {
+  if (!response.body) {
+    throw new Error("Poe stream response did not include a body.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const textParts: string[] = [];
+  const structuredParts: PoeMessageContentPart[] = [];
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split(/\n\n/);
+    buffer = events.pop() ?? "";
+
+    for (const event of events) {
+      appendPoeStreamEvent(event, textParts, structuredParts);
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    appendPoeStreamEvent(buffer, textParts, structuredParts);
+  }
+
+  const content = structuredParts.length > 0
+    ? structuredParts
+    : textParts.join("");
+
+  return {
+    choices: [
+      {
+        message: {
+          content
+        }
+      }
+    ]
+  };
+}
+
+function appendPoeStreamEvent(
+  event: string,
+  textParts: string[],
+  structuredParts: PoeMessageContentPart[]
+): void {
+  const data = event
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.replace(/^data:\s?/, ""))
+    .join("\n")
+    .trim();
+
+  if (!data || data === "[DONE]") {
+    return;
+  }
+
+  const chunk = JSON.parse(data) as PoeChatCompletionChunk;
+  if (chunk.error?.message) {
+    throw new Error(chunk.error.message);
+  }
+
+  const content = chunk.choices?.[0]?.delta?.content;
+  if (typeof content === "string") {
+    textParts.push(content);
+    return;
+  }
+
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (part?.text) {
+        textParts.push(part.text);
+      }
+      if (part?.image_url?.url) {
+        structuredParts.push(part);
+      }
+    }
+  }
 }
 
 async function callPoePromptModel(

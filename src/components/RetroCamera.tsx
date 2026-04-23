@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { fileToBase64, getMimeType } from '../utils/fileHelpers';
-import { generateChristmasPet } from '../services/gemini';
+import { generateChristmasPet, getGenerationStatus, startGenerationProcessing } from '../services/gemini';
 import catSticker from '../assets/cat-sticker.png';
 import santaHatSticker from '../assets/santa-hat-sticker.png';
 import leverSound from '../assets/sounds/lever-custom.m4a';
@@ -16,6 +16,16 @@ interface DevelopedPhoto {
   zIndex: number;
   isLanding: boolean;
 }
+
+interface PendingGeneration {
+  generationId: number;
+  mode: 'pet_fashion' | 'simple_hat';
+  startedAt: number;
+}
+
+const PHOTO_STORAGE_KEY = 'petcam:photos';
+const PENDING_GENERATION_STORAGE_KEY = 'petcam:pending-generation';
+const PROCESSING_RETRY_WINDOW_MS = 15_000;
 
 // --- High Precision Icon System ---
 
@@ -115,6 +125,7 @@ const RetroCamera: React.FC = () => {
   const [processingStatus, setProcessingStatus] = useState<string>("INITIALIZING...");
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [mode, setMode] = useState<'pet_fashion' | 'simple_hat'>('pet_fashion');
+  const [activeGeneration, setActiveGeneration] = useState<PendingGeneration | null>(null);
   
   // Onboarding
   const [onboardingStep, setOnboardingStep] = useState(1);
@@ -148,6 +159,10 @@ const RetroCamera: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ejectRef = useRef<HTMLDivElement>(null);
+  const didRestoreStateRef = useRef(false);
+  const processingControllerRef = useRef<AbortController | null>(null);
+  const processingRequestInFlightRef = useRef<number | null>(null);
+  const lastProcessingKickoffAtRef = useRef(0);
 
   // --- Onboarding Logic ---
   useEffect(() => {
@@ -161,6 +176,62 @@ const RetroCamera: React.FC = () => {
       setOnboardingStep(0);
     }
   }, [isProcessing, onboardingStep]);
+
+  useEffect(() => {
+    try {
+      const storedPhotos = localStorage.getItem(PHOTO_STORAGE_KEY);
+      if (storedPhotos) {
+        const parsed = JSON.parse(storedPhotos) as DevelopedPhoto[];
+        if (Array.isArray(parsed)) {
+          const restoredPhotos = parsed.map((photo) => ({ ...photo, isLanding: false }));
+          setPhotos(restoredPhotos);
+          const maxZ = restoredPhotos.reduce((highest, photo) => Math.max(highest, photo.zIndex), 100);
+          setHighestZ(maxZ);
+        }
+      }
+
+      const storedPendingGeneration = localStorage.getItem(PENDING_GENERATION_STORAGE_KEY);
+      if (storedPendingGeneration) {
+        const parsed = JSON.parse(storedPendingGeneration) as PendingGeneration;
+        if (parsed && typeof parsed.generationId === 'number') {
+          setActiveGeneration(parsed);
+          setMode(parsed.mode);
+          setIsProcessing(true);
+          setProcessingStatus('RECONNECTING TO LAB...');
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to restore persisted camera state.', error);
+      localStorage.removeItem(PHOTO_STORAGE_KEY);
+      localStorage.removeItem(PENDING_GENERATION_STORAGE_KEY);
+    } finally {
+      didRestoreStateRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!didRestoreStateRef.current) return;
+
+    try {
+      localStorage.setItem(PHOTO_STORAGE_KEY, JSON.stringify(photos));
+    } catch (error) {
+      console.warn('Failed to persist developed photos.', error);
+    }
+  }, [photos]);
+
+  useEffect(() => {
+    if (!didRestoreStateRef.current) return;
+
+    try {
+      if (activeGeneration) {
+        localStorage.setItem(PENDING_GENERATION_STORAGE_KEY, JSON.stringify(activeGeneration));
+      } else {
+        localStorage.removeItem(PENDING_GENERATION_STORAGE_KEY);
+      }
+    } catch (error) {
+      console.warn('Failed to persist pending generation state.', error);
+    }
+  }, [activeGeneration]);
 
   // --- File Handling ---
   const processFile = (file: File) => {
@@ -225,23 +296,13 @@ const RetroCamera: React.FC = () => {
         setProcessingStatus(displayText.toUpperCase());
       });
       
-      if (result.success) {
-        setEjectingPhotoUrl(result.content);
-        requestAnimationFrame(() => {
-            // Play sound first
-            playSlide();
-            
-            // Delay animation start
-            setTimeout(() => {
-                setIsEjecting(true); // Start sliding down
-                setIsProcessing(false);
-                setTimeout(() => {
-                   addToGallery(result.content);
-                   setEjectingPhotoUrl(null); 
-                   setIsEjecting(false); // Reset ejector
-                }, 5000); // Wait for slide down to finish before flying to gallery
-            }, 400); // 400ms delay for sound lead
+      if (result.success && result.generationId) {
+        setActiveGeneration({
+          generationId: result.generationId,
+          mode,
+          startedAt: Date.now()
         });
+        setProcessingStatus(mode === 'pet_fashion' ? 'PORTRAIT QUEUED...' : 'HAT QUEUED...');
       } else {
         setIsProcessing(false);
         setFeedbackMessage(result.content);
@@ -255,7 +316,7 @@ const RetroCamera: React.FC = () => {
   };
 
   // --- Gallery & Animation Logic ---
-  const addToGallery = (url: string) => {
+  const addToGallery = useCallback((url: string) => {
       const viewportW = window.innerWidth;
       const viewportH = window.innerHeight;
       const photoWidth = Math.min(260, viewportW * 0.8);
@@ -281,18 +342,24 @@ const RetroCamera: React.FC = () => {
       endX = Math.max(margin, Math.min(endX, maxX));
       endY = Math.max(margin, Math.min(endY, maxY));
 
+      const photoId = Date.now();
+      let nextZ = 101;
+      setHighestZ(prev => {
+          nextZ = prev + 1;
+          return nextZ;
+      });
+
       const newPhoto: DevelopedPhoto = {
-          id: Date.now(),
+          id: photoId,
           url,
           x: startX,
           y: startY,
           rotation: 0,
-          zIndex: highestZ + 1,
+          zIndex: nextZ,
           isLanding: true, 
       };
 
       setPhotos(prev => [...prev, newPhoto]);
-      setHighestZ(prev => prev + 1);
 
       requestAnimationFrame(() => {
           setPhotos(prev => prev.map(p => {
@@ -311,7 +378,142 @@ const RetroCamera: React.FC = () => {
               setPhotos(prev => prev.map(p => p.id === newPhoto.id ? { ...p, isLanding: false } : p));
           }, 1200); 
       });
-  };
+  }, []);
+
+  const ejectDevelopedPhoto = useCallback((imageUrl: string) => {
+    setEjectingPhotoUrl(imageUrl);
+    requestAnimationFrame(() => {
+      playSlide();
+
+      setTimeout(() => {
+        setIsEjecting(true);
+        setIsProcessing(false);
+        setTimeout(() => {
+          addToGallery(imageUrl);
+          setActiveGeneration(null);
+          setEjectingPhotoUrl(null);
+          setIsEjecting(false);
+        }, 5000);
+      }, 400);
+    });
+  }, [addToGallery, playSlide]);
+
+  const requestGenerationProcessing = useCallback((generationId: number, force = false) => {
+    const now = Date.now();
+    if (!force) {
+      if (processingRequestInFlightRef.current === generationId) return;
+      if (now - lastProcessingKickoffAtRef.current < PROCESSING_RETRY_WINDOW_MS) return;
+    }
+
+    processingControllerRef.current?.abort();
+
+    const controller = new AbortController();
+    processingControllerRef.current = controller;
+    processingRequestInFlightRef.current = generationId;
+    lastProcessingKickoffAtRef.current = now;
+
+    void startGenerationProcessing(generationId, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+
+        if ((result.status === 'failed' || result.status === 'error') && result.content) {
+          setActiveGeneration(null);
+          setIsProcessing(false);
+          setFeedbackMessage(result.content);
+        }
+      })
+      .finally(() => {
+        if (processingControllerRef.current === controller) {
+          processingControllerRef.current = null;
+        }
+
+        if (processingRequestInFlightRef.current === generationId) {
+          processingRequestInFlightRef.current = null;
+        }
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!activeGeneration) {
+      processingControllerRef.current?.abort();
+      processingControllerRef.current = null;
+      processingRequestInFlightRef.current = null;
+      return;
+    }
+
+    requestGenerationProcessing(activeGeneration.generationId, true);
+
+    return () => {
+      processingControllerRef.current?.abort();
+      processingControllerRef.current = null;
+      processingRequestInFlightRef.current = null;
+    };
+  }, [activeGeneration?.generationId, requestGenerationProcessing]);
+
+  useEffect(() => {
+    if (!activeGeneration) return;
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const scheduleNextPoll = (delayMs: number) => {
+      timeoutId = window.setTimeout(() => {
+        void pollGeneration();
+      }, delayMs);
+    };
+
+    const pollGeneration = async () => {
+      const result = await getGenerationStatus(activeGeneration.generationId);
+
+      if (cancelled) return;
+
+      if ((result.status === 'failed' || result.status === 'error') && result.content) {
+        setActiveGeneration(null);
+        setIsProcessing(false);
+        setFeedbackMessage(result.content);
+        return;
+      }
+
+      if (result.status === 'completed' && result.imageUrl) {
+        setProcessingStatus('PHOTO READY...');
+        ejectDevelopedPhoto(result.imageUrl);
+        return;
+      }
+
+      if (!result.success && !result.status) {
+        const isTransientError = /load failed|failed to fetch|network|unexpected/i.test(result.content);
+        if (!isTransientError) {
+          setActiveGeneration(null);
+          setIsProcessing(false);
+          setFeedbackMessage(result.content);
+          return;
+        }
+
+        setProcessingStatus('RECONNECTING TO LAB...');
+        scheduleNextPoll(4000);
+        return;
+      }
+
+      const nextStatus = activeGeneration.mode === 'pet_fashion'
+        ? 'CRAFTING HOLIDAY PORTRAIT...'
+        : 'ATTACHING FESTIVE HAT...';
+
+      setIsProcessing(true);
+      setProcessingStatus(nextStatus);
+      requestGenerationProcessing(activeGeneration.generationId);
+      scheduleNextPoll(2500);
+    };
+
+    setIsProcessing(true);
+    void pollGeneration();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [activeGeneration, ejectDevelopedPhoto, requestGenerationProcessing]);
 
   const deletePhoto = (id: number) => {
     setPhotos(prev => prev.filter(p => p.id !== id));

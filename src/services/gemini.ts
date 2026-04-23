@@ -1,8 +1,20 @@
 import { apiFetch } from "../lib/client";
 
-export interface GenerationResult {
+export interface GenerationSubmitResult {
   success: boolean;
   content: string;
+  generationId?: number;
+  status?: string;
+}
+
+export interface GenerationStatusResult {
+  success: boolean;
+  content: string;
+  generationId?: number;
+  status?: string;
+  imageUrl?: string;
+  prompt?: string;
+  mode?: "pet_fashion" | "simple_hat" | null;
 }
 
 export async function generateChristmasPet(
@@ -10,8 +22,8 @@ export async function generateChristmasPet(
   mimeType: string,
   mode: 'pet_fashion' | 'simple_hat',
   onProgress?: (text: string) => void
-): Promise<GenerationResult> {
-  if (onProgress) onProgress("PROCESSING ON SERVER...");
+): Promise<GenerationSubmitResult> {
+  if (onProgress) onProgress("QUEUEING JOB...");
 
   try {
     const response = await apiFetch("/api/public/gemini/generate", {
@@ -24,10 +36,52 @@ export async function generateChristmasPet(
       throw new Error(await readErrorMessage(response));
     }
 
-    const result = await response.json() as GenerationResult;
+    const result = await response.json() as GenerationSubmitResult;
     return result;
   } catch (error: any) {
     console.error("Image generation error:", error);
+    return { success: false, content: error.message || "An unexpected error occurred." };
+  }
+}
+
+export async function getGenerationStatus(generationId: number): Promise<GenerationStatusResult> {
+  try {
+    const response = await apiFetch(`/api/public/gemini/generate/${generationId}`);
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    return await response.json() as GenerationStatusResult;
+  } catch (error: any) {
+    console.error("Generation status error:", error);
+    return { success: false, content: error.message || "An unexpected error occurred." };
+  }
+}
+
+export async function startGenerationProcessing(
+  generationId: number,
+  signal?: AbortSignal
+): Promise<GenerationStatusResult> {
+  try {
+    const response = await apiFetch(`/api/public/gemini/generate/${generationId}/process`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal
+    });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    return await response.json() as GenerationStatusResult;
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      return { success: false, content: "Request aborted." };
+    }
+
+    console.error("Generation processing error:", error);
     return { success: false, content: error.message || "An unexpected error occurred." };
   }
 }

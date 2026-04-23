@@ -13,7 +13,7 @@
 
 ## 技术
 
-React + TypeScript 前端，Hono 后端，Google Gemini 负责图像理解和生成。
+React + TypeScript 前端，Hono 后端，Poe API 上的 GPT-Image-2 负责图像编辑与生成。
 
 ## Cloudflare 部署
 
@@ -23,7 +23,7 @@ React + TypeScript 前端，Hono 后端，Google Gemini 负责图像理解和生
 - `/api/public/gemini/generate` 和 `/api/public/admin/ban` 由 Hono Worker 处理
 - `D1` 存生成记录和封禁状态
 - `R2` 可选，用于持久化生成后的图片
-- `Secrets` 存 `GEMINI_API_KEY` 和 `ADMIN_SECRET`
+- `Secrets` 存 `POE_API_KEY` 和 `ADMIN_SECRET`
 
 ### 本地开发
 
@@ -47,11 +47,21 @@ npm run cf-typegen
 cp .dev.vars.example .dev.vars
 ```
 
-再把真实值填进去，然后启动开发环境：
+再把真实值填进去。
+
+4. 初始化本地 D1 数据库
+
+```sh
+npm run cf:migrate:local
+```
+
+5. 启动开发环境
 
 ```sh
 npm run dev
 ```
+
+`npm run dev` 也会在启动前自动补一次本地迁移；如果你改了 SQL schema，重新运行一次 `npm run cf:migrate:local` 即可。
 
 ### Cloudflare 资源准备
 

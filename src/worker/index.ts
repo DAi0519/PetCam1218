@@ -3,12 +3,12 @@
 import { cors } from "hono/cors";
 import { Hono } from "hono";
 import { Buffer } from "node:buffer";
-import { generateChristmasPet } from "./gemini";
+import { generateChristmasPet } from "./poe";
 
 interface WorkerBindings {
   ADMIN_SECRET: string;
   DB: D1Database;
-  GEMINI_API_KEY: string;
+  POE_API_KEY: string;
   IMAGES_BUCKET?: R2Bucket;
 }
 
@@ -65,22 +65,22 @@ app.post("/api/public/gemini/generate", async (c) => {
   const body = await c.req.json<GenerateRequest>().catch(() => null);
   const mode: GenerateMode = body?.mode === "simple_hat" ? "simple_hat" : "pet_fashion";
   const ip = getClientIp(c.req.header("CF-Connecting-IP"), c.req.header("x-forwarded-for"));
+  let generationId: number | null = null;
 
   if (!body?.base64Image || !body.mimeType) {
     return c.json({ success: false, content: "Missing image data" }, 400);
   }
 
-  if (mode === "pet_fashion") {
-    const generationCount = await getDailyGenerationCount(c.env.DB, ip);
-    if (generationCount >= DAILY_FASHION_LIMIT) {
-      return c.json({ success: false, content: "抱歉~今日用户量已达上限，请明日再试或联系开发者" });
-    }
-  }
-
-  const generationId = await createGenerationRecord(c.env.DB, ip, mode);
-
   try {
-    const result = await generateChristmasPet(c.env.GEMINI_API_KEY, body.base64Image, body.mimeType, mode);
+    if (mode === "pet_fashion") {
+      const generationCount = await getDailyGenerationCount(c.env.DB, ip);
+      if (generationCount >= DAILY_FASHION_LIMIT) {
+        return c.json({ success: false, content: "抱歉~今日用户量已达上限，请明日再试或联系开发者" });
+      }
+    }
+
+    generationId = await createGenerationRecord(c.env.DB, ip, mode);
+    const result = await generateChristmasPet(c.env.POE_API_KEY, body.base64Image, body.mimeType, mode);
 
     if (result.success && result.content.startsWith("data:image")) {
       const key = await uploadResultImage(c.env.IMAGES_BUCKET, generationId, result.content);
@@ -109,16 +109,21 @@ app.post("/api/public/gemini/generate", async (c) => {
 
     return c.json(result);
   } catch (error: any) {
-    const message = error?.message || "Internal Server Error";
+    const message = formatGenerationErrorMessage(error);
     console.error("Worker generation failed:", error);
 
-    await c.env.DB.prepare(
-      `UPDATE generations
-       SET status = ?, error_log = ?
-       WHERE id = ?`
-    )
-      .bind("error", message, generationId)
-      .run();
+    if (generationId !== null) {
+      await c.env.DB.prepare(
+        `UPDATE generations
+         SET status = ?, error_log = ?
+         WHERE id = ?`
+      )
+        .bind("error", message, generationId)
+        .run()
+        .catch((dbError) => {
+          console.error("Failed to persist generation error state:", dbError);
+        });
+    }
 
     return c.json({ success: false, content: message }, 500);
   }
@@ -211,4 +216,14 @@ async function uploadResultImage(
   });
 
   return key;
+}
+
+function formatGenerationErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "Internal Server Error");
+
+  if (message.includes("no such table:")) {
+    return "Database schema is missing for this environment. Run the D1 migrations and try again.";
+  }
+
+  return message;
 }

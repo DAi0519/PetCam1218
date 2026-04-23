@@ -82,8 +82,13 @@ app.post("/api/public/gemini/generate", async (c) => {
     generationId = await createGenerationRecord(c.env.DB, ip, mode);
     const result = await generateChristmasPet(c.env.POE_API_KEY, body.base64Image, body.mimeType, mode);
 
-    if (result.success && result.content.startsWith("data:image")) {
-      const key = await uploadResultImage(c.env.IMAGES_BUCKET, generationId, result.content);
+    if (result.success) {
+      const storedImageUri = result.content.startsWith("data:image")
+        ? await uploadResultImage(c.env.IMAGES_BUCKET, generationId, result.content)
+        : result.content.startsWith("http")
+          ? result.content
+          : null;
+
       await c.env.DB.prepare(
         `UPDATE generations
          SET status = ?, image_uri = ?, image_metadata = ?, prompt = ?
@@ -91,8 +96,12 @@ app.post("/api/public/gemini/generate", async (c) => {
       )
         .bind(
           "completed",
-          key,
-          JSON.stringify({ mimeType: "image/png", mode }),
+          storedImageUri,
+          JSON.stringify({
+            mimeType: result.content.startsWith("data:image") ? "image/png" : null,
+            mode,
+            transport: result.content.startsWith("data:image") ? "data_url" : "remote_url"
+          }),
           result.prompt || "Christmas Pet Generation",
           generationId
         )

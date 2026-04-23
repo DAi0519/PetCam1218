@@ -2,17 +2,15 @@ import { Buffer } from "node:buffer";
 
 const POE_CHAT_COMPLETIONS_URL = "https://api.poe.com/v1/chat/completions";
 const POE_PROMPT_MODEL = "gemini-3.1-pro";
-const POE_MODEL = "gpt-image-2";
+const POE_IMAGE_MODEL = "nano-banana-pro";
 const MODE_SETTINGS = {
   simple_hat: {
-    quality: "medium",
-    size: "auto"
+    aspectRatio: "3:4",
+    size: "2K"
   },
-  // GPT-Image-2 portrait generation on Poe is much more point-expensive than hat edits.
-  // Keep portrait mode as 3:4 while using the medium quality preset to balance fidelity and latency.
   pet_fashion: {
-    quality: "medium",
-    size: "1024x1536"
+    aspectRatio: "3:4",
+    size: "2K"
   }
 } as const;
 
@@ -75,10 +73,18 @@ export interface GenerationResult {
   prompt?: string;
 }
 
+interface PoeMessageContentPart {
+  text?: string;
+  type?: string;
+  image_url?: {
+    url?: string;
+  };
+}
+
 interface PoeChatCompletionResponse {
   choices?: Array<{
     message?: {
-      content?: string | Array<{ text?: string; type?: string }>;
+      content?: string | PoeMessageContentPart[];
     };
   }>;
   error?: {
@@ -115,20 +121,30 @@ export async function generateChristmasPet(
     const completion = await withRetry(() =>
       callPoeImageModel(apiKey, prompt, base64Image, mimeType, mode)
     );
-    const content = extractMessageContent(completion);
-    const imageUrl = extractImageUrl(content);
+    const imageUrl = extractImageUrl(completion);
 
     if (!imageUrl) {
-      console.error("Poe image response did not include an image URL:", content);
+      console.error("Poe image response did not include an image URL:", completion);
       return { success: false, content: "No image was returned by Poe." };
     }
 
-    const dataUrl = await convertImageUrlToDataUrl(imageUrl);
-    return {
-      success: true,
-      content: dataUrl,
-      prompt
-    };
+    try {
+      const dataUrl = await convertImageUrlToDataUrl(imageUrl);
+      return {
+        success: true,
+        content: dataUrl,
+        prompt
+      };
+    } catch (error) {
+      // Cloudflare's runtime occasionally fails when refetching the generated Poe CDN image.
+      // The frontend can render the original URL directly, so keep the request successful.
+      console.warn("Falling back to Poe CDN image URL after data URL conversion failed:", error);
+      return {
+        success: true,
+        content: imageUrl,
+        prompt
+      };
+    }
   } catch (error) {
     console.error("Poe image generation failed:", error);
     return {
@@ -221,7 +237,7 @@ async function callPoeImageModel(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: POE_MODEL,
+      model: POE_IMAGE_MODEL,
       stream: false,
       messages: [
         {
@@ -238,7 +254,7 @@ async function callPoeImageModel(
         }
       ],
       extra_body: {
-        quality: settings.quality,
+        aspect_ratio: settings.aspectRatio,
         size: settings.size
       }
     })
@@ -365,7 +381,21 @@ function extractMessageContent(response: PoeChatCompletionResponse): string {
   return "";
 }
 
-function extractImageUrl(content: string): string | null {
+function extractImageUrl(response: PoeChatCompletionResponse): string | null {
+  const content = response.choices?.[0]?.message?.content;
+
+  if (Array.isArray(content)) {
+    const structuredImageUrl = content.find((part) => part?.image_url?.url)?.image_url?.url;
+    if (structuredImageUrl) {
+      return structuredImageUrl;
+    }
+  }
+
+  const textContent = extractMessageContent(response);
+  return extractImageUrlFromText(textContent);
+}
+
+function extractImageUrlFromText(content: string): string | null {
   const markdownMatch = content.match(/!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/i);
   if (markdownMatch?.[1]) {
     return markdownMatch[1];
@@ -439,7 +469,7 @@ function formatPoeError(error: unknown): string {
   }
 
   if (error.status === 404) {
-    return "Poe image model was not found. Please verify GPT-Image-2 is available for this account.";
+    return "Poe image model was not found. Please verify Nano-Banana-Pro is available for this account.";
   }
 
   if (error.status === 408 || error.status === 429 || error.status === 529) {

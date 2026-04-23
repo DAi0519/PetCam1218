@@ -9,9 +9,9 @@ const MODE_SETTINGS = {
     size: "auto"
   },
   // GPT-Image-2 portrait generation on Poe is much more point-expensive than hat edits.
-  // Keep portrait mode as 3:4 while using the lowest quality preset to control point usage.
+  // Keep portrait mode as 3:4 while using the highest quality preset for best output fidelity.
   pet_fashion: {
-    quality: "low",
+    quality: "high",
     size: "1024x1536"
   }
 } as const;

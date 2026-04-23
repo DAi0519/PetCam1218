@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 
 const POE_CHAT_COMPLETIONS_URL = "https://api.poe.com/v1/chat/completions";
 const POE_PROMPT_MODEL = "gemini-3.1-pro";
-const POE_IMAGE_MODEL = "nano-banana-pro";
+const POE_IMAGE_MODEL = "nano-banana-2";
 const MODE_SETTINGS = {
   simple_hat: {
     aspectRatio: "3:4",
@@ -469,7 +469,7 @@ function formatPoeError(error: unknown): string {
   }
 
   if (error.status === 404) {
-    return "Poe image model was not found. Please verify Nano-Banana-Pro is available for this account.";
+    return "Poe image model was not found. Please verify Nano-Banana-2 is available for this account.";
   }
 
   if (error.status === 408 || error.status === 429 || error.status === 529) {

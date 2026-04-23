@@ -242,6 +242,7 @@ async function callPoeImageModel(
   mode: "pet_fashion" | "simple_hat"
 ): Promise<PoeChatCompletionResponse> {
   const settings = MODE_SETTINGS[mode];
+  const imagePrompt = buildImageModelPrompt(prompt, mode);
 
   const response = await fetch(POE_CHAT_COMPLETIONS_URL, {
     method: "POST",
@@ -256,7 +257,7 @@ async function callPoeImageModel(
         {
           role: "user",
           content: [
-            { type: "text", text: prompt },
+            { type: "text", text: imagePrompt },
             {
               type: "image_url",
               image_url: {
@@ -281,6 +282,25 @@ async function callPoeImageModel(
   }
 
   return readPoeStream(response);
+}
+
+function buildImageModelPrompt(
+  prompt: string,
+  mode: "pet_fashion" | "simple_hat"
+): string {
+  const editInstruction = mode === "simple_hat"
+    ? "Make only the requested Santa hat edit. Do not redesign the subject or background."
+    : "Create the requested Christmas portrait while preserving the pet from the reference image.";
+
+  return [
+    mode === "pet_fashion" ? "生成一张参考图中宠物的肖像写真。" : null,
+    "Use the attached input image as the primary and mandatory visual reference.",
+    "Preserve the exact subject identity from the input image, including species, breed, face shape, fur/marking pattern, body proportions, pose, and distinctive details.",
+    "Do not invent a different pet or generic replacement. The output must clearly look like the same subject from the input image.",
+    editInstruction,
+    "Final generation prompt:",
+    prompt
+  ].filter(Boolean).join("\n");
 }
 
 async function readPoeStream(response: Response): Promise<PoeChatCompletionResponse> {

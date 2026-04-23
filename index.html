@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Pet Cam</title>
     <meta property="og:title" content="Pet Cam" />
     <meta property="og:description" content="Turn your pet into a Christmas star." />
@@ -15,11 +15,29 @@
     <meta name="twitter:image" content="https://petcam.top/og-image.jpg" />
     <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&family=Oswald:wght@500;700&family=Permanent+Marker&display=swap" rel="stylesheet">
     <style>
+      html {
+        height: 100%;
+        height: -webkit-fill-available;
+        background-color: #fdfbf7;
+      }
+
       body {
+        min-height: 100%;
+        min-height: 100vh;
+        min-height: 100svh;
+        min-height: 100dvh;
         margin: 0;
         padding: 0;
-        background-color: #111;
+        background-color: #fdfbf7;
         overflow-x: hidden;
+      }
+
+      #root {
+        min-height: 100%;
+        min-height: 100vh;
+        min-height: 100svh;
+        min-height: 100dvh;
+        background-color: #fdfbf7;
       }
     </style>
   </head>

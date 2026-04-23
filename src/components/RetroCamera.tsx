@@ -396,7 +396,7 @@ const RetroCamera: React.FC = () => {
   }, [dragState, handleMouseMove, handleMouseUp]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen overflow-hidden relative touch-none select-none bg-[#fdfbf7]">
+    <div className="app-viewport app-safe-x app-safe-y flex flex-col items-center justify-center overflow-hidden relative touch-none select-none bg-[#fdfbf7]">
       
       {/* Background Texture - Warm Watercolor Paper */}
       <div className="absolute inset-0 bg-[#fdfbf7]"></div>

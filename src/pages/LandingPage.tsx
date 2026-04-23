@@ -43,7 +43,7 @@ export const LandingPage: React.FC = () => {
   }, [showCamera]);
 
   return (
-    <div className="w-full h-screen overflow-hidden bg-neutral-900 relative">
+    <div className="app-viewport relative w-full overflow-hidden bg-[#fdfbf7]">
       <AnimatePresence>
         {!showCamera && (
           <motion.div

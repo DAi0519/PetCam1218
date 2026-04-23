@@ -24,7 +24,7 @@ export function AdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-900 text-white p-8 font-mono">
+    <div className="app-viewport app-safe-frame bg-neutral-900 text-white font-mono">
       <h1 className="text-2xl font-bold mb-4 text-green-400">Admin Panel</h1>
       <div className="space-y-4 max-w-md">
         <div>

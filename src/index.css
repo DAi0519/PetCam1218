@@ -1,3 +1,57 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --app-bg: #fdfbf7;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+  }
+
+  html,
+  body,
+  #root {
+    background-color: var(--app-bg);
+  }
+
+  html {
+    height: 100%;
+    height: -webkit-fill-available;
+  }
+
+  body,
+  #root {
+    min-height: 100%;
+    min-height: 100vh;
+    min-height: 100svh;
+    min-height: 100dvh;
+  }
+}
+
+@layer utilities {
+  .app-viewport {
+    min-height: 100vh;
+    min-height: 100svh;
+    min-height: 100dvh;
+  }
+
+  .app-safe-x {
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+  }
+
+  .app-safe-y {
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+  }
+
+  .app-safe-frame {
+    padding-top: calc(var(--safe-top) + 1rem);
+    padding-right: calc(var(--safe-right) + 1rem);
+    padding-bottom: calc(var(--safe-bottom) + 1rem);
+    padding-left: calc(var(--safe-left) + 1rem);
+  }
+}

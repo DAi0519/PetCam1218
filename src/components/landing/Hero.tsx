@@ -55,7 +55,9 @@ export const Hero: React.FC<HeroProps> = ({ onStart }) => {
       ];
 
   return (
-    <div className="relative w-full h-screen h-svh flex flex-col items-center justify-center overflow-hidden text-neutral-800">
+    <div
+      className="app-viewport app-safe-x app-safe-y relative w-full flex flex-col items-center justify-center overflow-hidden text-neutral-800"
+    >
       {/* Background Texture - Matching Camera Page */}
       <div className="absolute inset-0 bg-[#fdfbf7]"></div>
       <div className="absolute inset-0 opacity-60 bg-[url('https://www.transparenttextures.com/patterns/watercolor.png')] mix-blend-multiply"></div>

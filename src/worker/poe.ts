@@ -1,6 +1,6 @@
 const POE_CHAT_COMPLETIONS_URL = "https://api.poe.com/v1/chat/completions";
 const POE_PROMPT_MODEL = "gemini-3.1-pro";
-const POE_IMAGE_MODEL = "nano-banana-2";
+const POE_IMAGE_MODEL = "nano-banana-pro";
 const MODE_SETTINGS = {
   simple_hat: {
     aspectRatio: "3:4",

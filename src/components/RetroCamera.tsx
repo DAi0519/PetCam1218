@@ -126,9 +126,11 @@ const RetroCamera: React.FC = () => {
   const [leverPulled, setLeverPulled] = useState(false);
   const [ejectingPhotoUrl, setEjectingPhotoUrl] = useState<string | null>(null);
   const [isEjecting, setIsEjecting] = useState(false);
+  const [ejectingPhotoLoadFailed, setEjectingPhotoLoadFailed] = useState(false);
 
   // Gallery
   const [photos, setPhotos] = useState<DevelopedPhoto[]>([]);
+  const [failedPhotoIds, setFailedPhotoIds] = useState<number[]>([]);
   const [highestZ, setHighestZ] = useState(100);
 
   // Audio
@@ -148,6 +150,7 @@ const RetroCamera: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ejectRef = useRef<HTMLDivElement>(null);
+  const ejectingPhotoLoadFailedRef = useRef(false);
 
   // --- Onboarding Logic ---
   useEffect(() => {
@@ -161,6 +164,10 @@ const RetroCamera: React.FC = () => {
       setOnboardingStep(0);
     }
   }, [isProcessing, onboardingStep]);
+
+  useEffect(() => {
+    ejectingPhotoLoadFailedRef.current = ejectingPhotoLoadFailed;
+  }, [ejectingPhotoLoadFailed]);
 
   // --- File Handling ---
   const processFile = (file: File) => {
@@ -193,8 +200,24 @@ const RetroCamera: React.FC = () => {
     setFileObj(null);
     setOnboardingStep(1);
     setFeedbackMessage(null);
+    setEjectingPhotoLoadFailed(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const handleGeneratedImageLoadError = useCallback((stage: 'ejecting' | 'gallery', url: string, photoId?: number) => {
+    console.error(`Generated image load failed during ${stage}:`, url);
+
+    if (stage === 'ejecting') {
+      setEjectingPhotoLoadFailed(true);
+      setFeedbackMessage("Image generated, but loading the result failed. Please try again.");
+      return;
+    }
+
+    if (photoId !== undefined) {
+      setFailedPhotoIds(prev => prev.includes(photoId) ? prev : [...prev, photoId]);
+    }
+    setFeedbackMessage("A generated photo could not be displayed. Please try again.");
+  }, []);
 
   // --- Core Camera Trigger Logic ---
   const triggerCamera = async () => {
@@ -215,6 +238,8 @@ const RetroCamera: React.FC = () => {
     setIsProcessing(true);
     setProcessingStatus("CONNECTING TO LAB...");
     setFeedbackMessage(null);
+    setEjectingPhotoLoadFailed(false);
+    ejectingPhotoLoadFailedRef.current = false;
 
     try {
       const base64 = await fileToBase64(fileObj);
@@ -234,9 +259,12 @@ const RetroCamera: React.FC = () => {
                 setIsEjecting(true);
                 setIsProcessing(false);
                 setTimeout(() => {
-                   addToGallery(result.content);
+                   if (!ejectingPhotoLoadFailedRef.current) {
+                     addToGallery(result.content);
+                   }
                    setEjectingPhotoUrl(null); 
                    setIsEjecting(false);
+                   setEjectingPhotoLoadFailed(false);
                 }, 5000);
             }, 400);
         });
@@ -313,6 +341,7 @@ const RetroCamera: React.FC = () => {
 
   const deletePhoto = (id: number) => {
     setPhotos(prev => prev.filter(p => p.id !== id));
+    setFailedPhotoIds(prev => prev.filter(photoId => photoId !== id));
   };
 
   const downloadPhoto = (url: string) => {
@@ -427,7 +456,19 @@ const RetroCamera: React.FC = () => {
              <div className="absolute inset-0 shadow-[inset_0_0_20px_rgba(0,0,0,0.02)] pointer-events-none rounded-[2px]"></div>
 
              <div className="w-full aspect-[3/4] bg-[#1a1a1a] relative overflow-hidden shadow-inner pointer-events-none mb-3 z-10 filter sepia-[0.05] contrast-[1.05]">
-                <img src={photo.url} alt="Developed" className="w-full h-full object-cover" draggable={false} />
+                {failedPhotoIds.includes(photo.id) ? (
+                  <div className="flex h-full w-full items-center justify-center bg-neutral-900 px-6 text-center font-mono text-[11px] uppercase tracking-[0.3em] text-neutral-200">
+                    Load failed
+                  </div>
+                ) : (
+                  <img
+                    src={photo.url}
+                    alt="Developed"
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                    onError={() => handleGeneratedImageLoadError('gallery', photo.url, photo.id)}
+                  />
+                )}
                 {/* Vintage Photo Overlays */}
                 <div className="absolute inset-0 bg-gradient-to-tr from-orange-50/10 via-transparent to-blue-50/5 pointer-events-none mix-blend-overlay"></div>
                 <div className="absolute inset-0 opacity-[0.1] bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] pointer-events-none"></div>
@@ -506,11 +547,18 @@ const RetroCamera: React.FC = () => {
                     >
                         <div className="absolute inset-0 opacity-[0.3] bg-[url('https://www.transparenttextures.com/patterns/natural-paper.png')] mix-blend-multiply rounded-[2px]"></div>
                         <div className="w-full aspect-[3/4] bg-[#1a1a1a] relative overflow-hidden shadow-inner z-10">
-                            <img 
-                                src={ejectingPhotoUrl} 
-                                alt="Ejecting" 
-                                className={`w-full h-full object-cover bg-black transition-all duration-[5000ms] ease-linear ${isEjecting ? 'brightness-100 grayscale-0 sepia-0' : 'brightness-[0.2] grayscale sepia-[0.5]'}`} 
-                            />
+                            {ejectingPhotoLoadFailed ? (
+                                <div className="flex h-full w-full items-center justify-center bg-neutral-900 px-6 text-center font-mono text-[11px] uppercase tracking-[0.3em] text-neutral-200">
+                                    Load failed
+                                </div>
+                            ) : (
+                                <img 
+                                    src={ejectingPhotoUrl} 
+                                    alt="Ejecting" 
+                                    className={`w-full h-full object-cover bg-black transition-all duration-[5000ms] ease-linear ${isEjecting ? 'brightness-100 grayscale-0 sepia-0' : 'brightness-[0.2] grayscale sepia-[0.5]'}`}
+                                    onError={() => handleGeneratedImageLoadError('ejecting', ejectingPhotoUrl)}
+                                />
+                            )}
                         </div>
                     </div>
                 )}

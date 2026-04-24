@@ -36,6 +36,52 @@ app.get("/api/health", (c) =>
   })
 );
 
+app.get("/api/public/generations/:id/image", async (c) => {
+  const generationId = Number(c.req.param("id"));
+  if (!Number.isInteger(generationId) || generationId <= 0) {
+    return c.json({ success: false, content: "Invalid generation id" }, 400);
+  }
+
+  const record = await c.env.DB.prepare(
+    `SELECT image_uri, image_metadata
+     FROM generations
+     WHERE id = ? AND status = ?`
+  )
+    .bind(generationId, "completed")
+    .first<{ image_uri?: string | null; image_metadata?: string | null }>();
+
+  if (!record?.image_uri) {
+    return c.json({ success: false, content: "Image not found" }, 404);
+  }
+
+  if (/^https?:\/\//i.test(record.image_uri)) {
+    return c.redirect(record.image_uri, 302);
+  }
+
+  if (!c.env.IMAGES_BUCKET) {
+    return c.json({ success: false, content: "Image storage is not configured" }, 503);
+  }
+
+  const object = await c.env.IMAGES_BUCKET.get(record.image_uri);
+  if (!object) {
+    return c.json({ success: false, content: "Stored image not found" }, 404);
+  }
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("etag", object.httpEtag);
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+
+  const storedMimeType = readStoredMimeType(record.image_metadata);
+  if (storedMimeType && !headers.has("content-type")) {
+    headers.set("content-type", storedMimeType);
+  }
+
+  return new Response(object.body, {
+    headers
+  });
+});
+
 app.post("/api/public/admin/ban", async (c) => {
   const secret = c.req.header("x-admin-secret");
   if (!secret || secret !== c.env.ADMIN_SECRET) {
@@ -85,11 +131,24 @@ app.post("/api/public/gemini/generate", async (c) => {
     if (result.success) {
       const isDataUrl = result.content.startsWith("data:image");
       const isRemoteUrl = result.content.startsWith("http");
-      const storedImageUri = isDataUrl
-        ? await uploadResultImage(c.env.IMAGES_BUCKET, generationId, result.content)
-        : isRemoteUrl
-          ? result.content
-          : null;
+      const responseImageUrl = buildGenerationImageUrl(new URL(c.req.url).origin, generationId);
+      let storedImageUri: string | null = null;
+      let storedMimeType: string | null = null;
+      let transport: "data_url" | "remote_url" | "remote_url_mirrored" | "unknown" = "unknown";
+
+      if (isDataUrl) {
+        transport = "data_url";
+        storedImageUri = await uploadResultImage(c.env.IMAGES_BUCKET, generationId, result.content);
+        storedMimeType = "image/png";
+      } else if (isRemoteUrl) {
+        transport = "remote_url";
+        const mirroredImage = await uploadRemoteResultImage(c.env.IMAGES_BUCKET, generationId, result.content);
+        if (mirroredImage) {
+          storedImageUri = mirroredImage.key;
+          storedMimeType = mirroredImage.contentType;
+          transport = "remote_url_mirrored";
+        }
+      }
 
       await c.env.DB.prepare(
         `UPDATE generations
@@ -98,22 +157,21 @@ app.post("/api/public/gemini/generate", async (c) => {
       )
         .bind(
           "completed",
-          storedImageUri,
+          storedImageUri ?? (isRemoteUrl ? result.content : null),
           JSON.stringify({
-            mimeType: isDataUrl ? "image/png" : null,
+            mimeType: storedMimeType,
             mode,
-            transport: isDataUrl ? "data_url" : "remote_url"
+            transport
           }),
           result.prompt || "Christmas Pet Generation",
           generationId
         )
         .run();
 
-      if (isRemoteUrl) {
-        c.executionCtx.waitUntil(
-          mirrorRemoteResultImage(c.env.DB, c.env.IMAGES_BUCKET, generationId, result.content, mode)
-        );
-      }
+      return c.json({
+        ...result,
+        content: storedImageUri ? responseImageUrl : result.content
+      });
     } else {
       await c.env.DB.prepare(
         `UPDATE generations
@@ -235,44 +293,15 @@ async function uploadResultImage(
   return key;
 }
 
-async function mirrorRemoteResultImage(
-  db: D1Database,
+async function uploadRemoteResultImage(
   bucket: R2Bucket | undefined,
   generationId: number,
-  imageUrl: string,
-  mode: GenerateMode
-): Promise<void> {
-  if (!bucket) {
-    return;
-  }
-
-  try {
-    const key = await uploadRemoteResultImage(bucket, generationId, imageUrl);
-    await db.prepare(
-      `UPDATE generations
-       SET image_uri = ?, image_metadata = ?
-       WHERE id = ?`
-    )
-      .bind(
-        key,
-        JSON.stringify({
-          mimeType: "image/png",
-          mode,
-          transport: "remote_url_mirrored"
-        }),
-        generationId
-      )
-      .run();
-  } catch (error) {
-    console.warn("Failed to mirror generated Poe image to R2:", error);
-  }
-}
-
-async function uploadRemoteResultImage(
-  bucket: R2Bucket,
-  generationId: number,
   imageUrl: string
-): Promise<string> {
+): Promise<{ key: string; contentType: string | null } | null> {
+  if (!bucket) {
+    return null;
+  }
+
   const response = await fetch(imageUrl);
   if (!response.ok) {
     throw new Error(`Failed to download generated image (${response.status})`);
@@ -285,7 +314,27 @@ async function uploadRemoteResultImage(
     }
   });
 
-  return key;
+  return {
+    key,
+    contentType: response.headers.get("content-type")
+  };
+}
+
+function buildGenerationImageUrl(origin: string, generationId: number): string {
+  return `${origin}/api/public/generations/${generationId}/image`;
+}
+
+function readStoredMimeType(imageMetadata: string | null | undefined): string | null {
+  if (!imageMetadata) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(imageMetadata) as { mimeType?: unknown };
+    return typeof parsed.mimeType === "string" ? parsed.mimeType : null;
+  } catch {
+    return null;
+  }
 }
 
 function formatGenerationErrorMessage(error: unknown): string {

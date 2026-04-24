@@ -83,9 +83,11 @@ app.post("/api/public/gemini/generate", async (c) => {
     const result = await generateChristmasPet(c.env.POE_API_KEY, body.base64Image, body.mimeType, mode);
 
     if (result.success) {
-      const storedImageUri = result.content.startsWith("data:image")
+      const isDataUrl = result.content.startsWith("data:image");
+      const isRemoteUrl = result.content.startsWith("http");
+      const storedImageUri = isDataUrl
         ? await uploadResultImage(c.env.IMAGES_BUCKET, generationId, result.content)
-        : result.content.startsWith("http")
+        : isRemoteUrl
           ? result.content
           : null;
 
@@ -98,14 +100,20 @@ app.post("/api/public/gemini/generate", async (c) => {
           "completed",
           storedImageUri,
           JSON.stringify({
-            mimeType: result.content.startsWith("data:image") ? "image/png" : null,
+            mimeType: isDataUrl ? "image/png" : null,
             mode,
-            transport: result.content.startsWith("data:image") ? "data_url" : "remote_url"
+            transport: isDataUrl ? "data_url" : "remote_url"
           }),
           result.prompt || "Christmas Pet Generation",
           generationId
         )
         .run();
+
+      if (isRemoteUrl) {
+        c.executionCtx.waitUntil(
+          mirrorRemoteResultImage(c.env.DB, c.env.IMAGES_BUCKET, generationId, result.content, mode)
+        );
+      }
     } else {
       await c.env.DB.prepare(
         `UPDATE generations
@@ -221,6 +229,59 @@ async function uploadResultImage(
   await bucket.put(key, imageBuffer, {
     httpMetadata: {
       contentType: "image/png"
+    }
+  });
+
+  return key;
+}
+
+async function mirrorRemoteResultImage(
+  db: D1Database,
+  bucket: R2Bucket | undefined,
+  generationId: number,
+  imageUrl: string,
+  mode: GenerateMode
+): Promise<void> {
+  if (!bucket) {
+    return;
+  }
+
+  try {
+    const key = await uploadRemoteResultImage(bucket, generationId, imageUrl);
+    await db.prepare(
+      `UPDATE generations
+       SET image_uri = ?, image_metadata = ?
+       WHERE id = ?`
+    )
+      .bind(
+        key,
+        JSON.stringify({
+          mimeType: "image/png",
+          mode,
+          transport: "remote_url_mirrored"
+        }),
+        generationId
+      )
+      .run();
+  } catch (error) {
+    console.warn("Failed to mirror generated Poe image to R2:", error);
+  }
+}
+
+async function uploadRemoteResultImage(
+  bucket: R2Bucket,
+  generationId: number,
+  imageUrl: string
+): Promise<string> {
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download generated image (${response.status})`);
+  }
+
+  const key = `anonymous/${generationId}.png`;
+  await bucket.put(key, response.body, {
+    httpMetadata: {
+      contentType: response.headers.get("content-type") ?? "image/png"
     }
   });
 

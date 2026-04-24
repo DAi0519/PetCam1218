@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-
 const POE_CHAT_COMPLETIONS_URL = "https://api.poe.com/v1/chat/completions";
 const POE_PROMPT_MODEL = "gemini-3.1-pro";
 const POE_IMAGE_MODEL = "nano-banana-2";
@@ -141,23 +139,11 @@ export async function generateChristmasPet(
       return { success: false, content: "No image was returned by Poe." };
     }
 
-    try {
-      const dataUrl = await convertImageUrlToDataUrl(imageUrl);
-      return {
-        success: true,
-        content: dataUrl,
-        prompt
-      };
-    } catch (error) {
-      // Cloudflare's runtime occasionally fails when refetching the generated Poe CDN image.
-      // The frontend can render the original URL directly, so keep the request successful.
-      console.warn("Falling back to Poe CDN image URL after data URL conversion failed:", error);
-      return {
-        success: true,
-        content: imageUrl,
-        prompt
-      };
-    }
+    return {
+      success: true,
+      content: imageUrl,
+      prompt
+    };
   } catch (error) {
     console.error("Poe image generation failed:", error);
     return {
@@ -550,18 +536,6 @@ function tryParsePromptJson(value: string): string | null {
   } catch {
     return null;
   }
-}
-
-async function convertImageUrlToDataUrl(imageUrl: string): Promise<string> {
-  const response = await fetch(imageUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to download generated image (${response.status})`);
-  }
-
-  const contentType = response.headers.get("content-type") ?? "image/png";
-  const arrayBuffer = await response.arrayBuffer();
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
-  return `data:${contentType};base64,${base64}`;
 }
 
 function formatPoeError(error: unknown): string {
